@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from data_quality_firewall.db.session import get_db
 from data_quality_firewall.db.database import SessionLocal
 from data_quality_firewall.models.run import FileRun
+from data_quality_firewall.models.run import RunStatus
 
 
 router = APIRouter(prefix="/files", tags=["files"])
@@ -47,10 +48,11 @@ def process_csv(run_id: uuid.UUID, file_content: bytes):
         run.total_rows = total_rows
         run.valid_rows = valid_rows
         run.invalid_rows = invalid_rows
-        run.status = "COMPLETED"
+        run.status = RunStatus.COMPLETED
+
 
     except Exception:
-        run.status = "FAILED"
+        run.status = RunStatus.FAILED
 
     finally:
         db.commit()
@@ -73,7 +75,8 @@ async def upload_file(
     new_run = FileRun(
         id=uuid.uuid4(),
         filename=file.filename,
-        status="PROCESSING"
+        status=RunStatus.PROCESSING
+
     )
 
     db.add(new_run)
@@ -111,3 +114,36 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
         "invalid_rows": run.invalid_rows,
         "created_at": run.created_at,
     }
+
+@router.get("/")
+def list_runs(
+    status: str | None = None,
+    limit: int = 10,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    query = db.query(FileRun)
+
+    if status:
+        query = query.filter(FileRun.status == status)
+
+    runs = (
+        query
+        .order_by(FileRun.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+
+    return [
+        {
+            "run_id": str(run.id),
+            "filename": run.filename,
+            "status": run.status,
+            "total_rows": run.total_rows,
+            "valid_rows": run.valid_rows,
+            "invalid_rows": run.invalid_rows,
+            "created_at": run.created_at,
+        }
+        for run in runs
+    ]
